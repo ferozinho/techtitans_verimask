@@ -8,7 +8,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "zk:setup": "node scripts/setup-zk.mjs"
+    "zk:setup": "node scripts/setup-zk.mjs",
+    "zk:test": "node scripts/test-proof.mjs"
   },
   "dependencies": {
     "@noble/curves": "^1.9.7",
