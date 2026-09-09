@@ -1,6 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  agentRules: false,
   serverExternalPackages: ["snarkjs", "ffjavascript", "circomlibjs"],
   turbopack: {
     resolveAlias: {
