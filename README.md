@@ -188,17 +188,6 @@ Open **`https://<subdomain>.trycloudflare.com/kiosk`** so the QR encodes that ho
 
 `next.config.ts` → `allowedDevOrigins` includes `*.trycloudflare.com`. Next 16 otherwise blocks `/_next` from the tunnel host.
 
-### What the live demo does **not** do
-
-Be honest with judges:
-
-- **No Groth16 on Present.** Circuits are leftover (age/GPA range). Live path is signed selective disclosure.
-- **No unlinkable revocation.** Leaving the hospital is not enforced on-chain beyond “don’t stamp them again.”
-- **The kiosk still receives the full signed credential** (id, schema, all commitments), plus only the opened values. Unused *values* stay hidden; the commitment set is visible. Correlating two tips from the same credential id is possible. That is a known gap, not a SNARK.
-- Pickup code ≠ presentation. Sharing pickup with a journalist hands them the whole wallet.
-
----
-
 ## Run
 
 ```bash
