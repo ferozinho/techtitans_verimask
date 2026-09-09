@@ -58,7 +58,7 @@ export function tenthsToGpa(tenths: number): string {
 }
 
 export function saltToField(saltHex: string): bigint {
-  return BigInt(`0x${saltHex}`) % (1n << 248n);
+  return BigInt(`0x${saltHex}`) % (BigInt(1) << BigInt(248));
 }
 
 export function shortDid(did: string): string {
