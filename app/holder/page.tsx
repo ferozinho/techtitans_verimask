@@ -2,12 +2,12 @@
 
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import { PolicyCard } from "@/components/Policy";
 import { Button, Field, inputClass, Shell } from "@/components/ui";
-import { AGE_THRESHOLD, GPA_TENTHS_THRESHOLD } from "@/lib/constants";
-import { meetsPredicates } from "@/lib/credential";
-import { tenthsToGpa } from "@/lib/crypto";
+import { labelsFromSchema } from "@/lib/credential";
 import { buildPresentation } from "@/lib/present";
-import type { FieldKey, HolderBundle, VerifySession } from "@/lib/types";
+import { packById } from "@/lib/schema";
+import type { HolderBundle, VerifySession } from "@/lib/types";
 import { clearHolder, loadHolder, saveHolder } from "@/lib/wallet";
 
 export default function HolderPage() {
@@ -24,15 +24,17 @@ function HolderInner() {
   const search = useSearchParams();
   const sessionId = search.get("s");
   const [bundle, setBundle] = useState<HolderBundle | null>(null);
+  const [ready, setReady] = useState(false);
   const [code, setCode] = useState("");
   const [session, setSession] = useState<VerifySession | null>(null);
-  const [disclose, setDisclose] = useState<FieldKey[]>(["degree"]);
+  const [disclose, setDisclose] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     setBundle(loadHolder());
+    setReady(true);
   }, []);
 
   useEffect(() => {
@@ -48,10 +50,16 @@ function HolderInner() {
       .catch(() => setError("could not load kiosk session"));
   }, [sessionId]);
 
-  const predicates = useMemo(
-    () => (bundle ? meetsPredicates(bundle) : null),
+  const labels = useMemo(
+    () => (bundle ? labelsFromSchema(bundle.credential.schema) : {}),
     [bundle],
   );
+  const schemaIds = bundle?.credential.schema.map((c) => c.id) ?? [];
+  const missingRequired =
+    session && bundle
+      ? session.request.disclose.filter((id) => !bundle.secrets[id])
+      : [];
+  const pack = session ? packById(session.request.packId) : null;
 
   async function claim() {
     setError(null);
@@ -79,7 +87,7 @@ function HolderInner() {
     reader.readAsText(file);
   }
 
-  function toggle(key: FieldKey) {
+  function toggle(key: string) {
     const required = session?.request.disclose ?? [];
     if (required.includes(key)) return;
     setDisclose((cur) =>
@@ -89,24 +97,19 @@ function HolderInner() {
 
   async function present() {
     if (!bundle || !session) return;
+    if (missingRequired.length) {
+      setError(
+        `this wallet is missing ${missingRequired.join(", ")} — pick another policy or issue those claims`,
+      );
+      return;
+    }
     setBusy(true);
     setError(null);
     setStatus(null);
     try {
-      if (!predicates?.age || !predicates.gpa) {
-        await fetch(`/api/sessions/${session.id}/present`, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ fail: true, reason: "predicates_unsatisfied" }),
-        });
-        setStatus("sent fail — you don’t meet the range");
-        return;
-      }
-      setStatus("weaving groth16 proof…");
-      const presentation = await buildPresentation({
+      const presentation = buildPresentation({
         bundle,
         sessionId: session.id,
-        request: session.request,
         disclose,
       });
       const res = await fetch(`/api/sessions/${session.id}/present`, {
@@ -115,13 +118,33 @@ function HolderInner() {
         body: JSON.stringify(presentation),
       });
       const data = await res.json();
-      setStatus(data.status === "pass" ? "kiosk should flip green" : `kiosk: ${data.status}`);
+      setStatus(
+        data.status === "pass"
+          ? "portal should flip green"
+          : `portal: ${data.status}`,
+      );
     } catch (err) {
-      setError(err instanceof Error ? err.message : "prove failed");
+      setError(err instanceof Error ? err.message : "present failed");
     } finally {
       setBusy(false);
     }
   }
+
+  async function decline() {
+    if (!session) return;
+    await fetch(`/api/sessions/${session.id}/present`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ fail: true, reason: "holder_declined" }),
+    });
+    setStatus("declined — portal will show fail");
+  }
+
+  if (!ready) {
+    return <p className="font-mono text-mist">loading wallet…</p>;
+  }
+
+  const issuerLine = bundle?.credential.issuerName;
 
   return (
     <div className="grid gap-12 lg:grid-cols-[1fr_1fr]">
@@ -129,10 +152,10 @@ function HolderInner() {
         <p className="font-mono text-xs uppercase tracking-[0.22em] text-acid">
           wallet
         </p>
-        <h1 className="mt-3 text-5xl font-semibold">Your mask.</h1>
+        <h1 className="mt-3 text-5xl font-semibold">Your claims.</h1>
         <p className="mt-4 max-w-lg text-paper-dim">
-          Scan the kiosk QR with your phone camera. This page will ask for
-          predicates, not your GPA.
+          Scan the portal QR. Tick only extra fields you want to add. Required
+          claims stay on. Everything else stays in this wallet.
         </p>
 
         {!bundle && (
@@ -167,27 +190,32 @@ function HolderInner() {
         {bundle && (
           <div className="mt-10 border border-paper/15 bg-ink-2 p-6">
             <div className="font-mono text-[11px] uppercase tracking-[0.18em] text-mist">
-              {bundle.credential.college}
+              {issuerLine}
             </div>
-            <p className="mt-3 text-3xl">{bundle.secrets.name.value}</p>
-            <p className="mt-2 text-paper-dim">
-              {bundle.secrets.degree.value} · {bundle.secrets.program.value}
+            <p className="mt-3 text-3xl">
+              {bundle.secrets.name?.value ?? bundle.credential.id}
             </p>
-            <dl className="mt-8 grid grid-cols-2 gap-4 font-mono text-sm">
-              <div>
-                <dt className="text-mist">age (hidden)</dt>
-                <dd className="mt-1 text-acid">{bundle.secrets.age.value}</dd>
-              </div>
-              <div>
-                <dt className="text-mist">gpa (hidden)</dt>
-                <dd className="mt-1 text-acid">
-                  {tenthsToGpa(bundle.secrets.gpaTenths.value)}
-                </dd>
-              </div>
+            <dl className="mt-8 space-y-3 font-mono text-sm">
+              {bundle.credential.schema.map((claim) => {
+                const on = disclose.includes(claim.id);
+                return (
+                  <div
+                    key={claim.id}
+                    className="flex items-center justify-between gap-4"
+                  >
+                    <div>
+                      <dt className="text-mist">{claim.label}</dt>
+                      <dd className="mt-1 text-paper">
+                        {bundle.secrets[claim.id]?.value}
+                      </dd>
+                    </div>
+                    <span className={on ? "text-acid" : "text-mist"}>
+                      {on ? "disclose" : "hidden"}
+                    </span>
+                  </div>
+                );
+              })}
             </dl>
-            <p className="mt-6 font-mono text-[11px] text-mist">
-              {bundle.credential.id}
-            </p>
             <Button
               type="button"
               tone="ghost"
@@ -203,33 +231,40 @@ function HolderInner() {
         )}
       </div>
 
-      <aside className="border border-paper/15 p-6">
-        <div className="font-mono text-[11px] uppercase tracking-[0.18em] text-mist">
-          kiosk request
-        </div>
-        {!session && (
-          <p className="mt-4 text-paper-dim">
-            No live session. Open this page from the kiosk QR, or wait for a
-            scan.
+      <aside className="space-y-6">
+        {session ? (
+          <PolicyCard
+            required={session.request.disclose}
+            extra={disclose.filter((k) => !session.request.disclose.includes(k))}
+            labels={labels}
+            schemaIds={schemaIds}
+          />
+        ) : (
+          <p className="border border-paper/15 p-6 text-paper-dim">
+            No live session. Open this page from the portal QR.
+          </p>
+        )}
+        {session && pack && (
+          <p className="font-mono text-xs text-mist">
+            Policy pack: {pack.label}. {pack.blurb}
           </p>
         )}
         {session && (
-          <>
-            <h2 className="mt-4 text-3xl">Prove without showing.</h2>
-            <ul className="mt-6 space-y-2 font-mono text-sm text-acid">
-              <li>age ≥ {session.request.ageGte ?? AGE_THRESHOLD}</li>
-              <li>
-                gpa ≥ {tenthsToGpa(session.request.gpaGte ?? GPA_TENTHS_THRESHOLD)}
-              </li>
-            </ul>
-            <div className="mt-8 space-y-3">
-              {(["name", "degree", "program"] as FieldKey[]).map((key) => {
+          <div className="border border-paper/15 p-6">
+            <div className="font-mono text-[11px] uppercase tracking-[0.18em] text-mist">
+              extra disclosure
+            </div>
+            <div className="mt-5 space-y-3">
+              {schemaIds.map((key) => {
                 const required = session.request.disclose.includes(key);
                 const on = disclose.includes(key);
                 return (
-                  <label key={key} className="flex items-center justify-between gap-4">
-                    <span className="font-mono text-sm uppercase tracking-[0.14em]">
-                      reveal {key}
+                  <label
+                    key={key}
+                    className="flex items-center justify-between gap-4"
+                  >
+                    <span className="font-mono text-sm uppercase tracking-[0.12em]">
+                      {labels[key] ?? key}
                       {required ? " · required" : ""}
                     </span>
                     <input
@@ -242,24 +277,33 @@ function HolderInner() {
                 );
               })}
             </div>
-            {predicates && (
-              <p className="mt-6 font-mono text-xs text-mist">
-                local check: age {predicates.age ? "ok" : "fail"} · gpa{" "}
-                {predicates.gpa ? "ok" : "fail"}
+            {missingRequired.length > 0 && (
+              <p className="mt-4 text-sm text-signal">
+                This wallet does not have {missingRequired.join(", ")}. Issue a
+                matching template or pick another pack at the portal.
               </p>
             )}
             <Button
               type="button"
               className="mt-8 w-full"
-              disabled={!bundle || busy}
+              disabled={!bundle || busy || missingRequired.length > 0}
               onClick={present}
             >
-              {busy ? "Proving…" : "Verify"}
+              {busy ? "Presenting…" : "Present selected claims"}
+            </Button>
+            <Button
+              type="button"
+              tone="ghost"
+              className="mt-3 w-full"
+              disabled={!session}
+              onClick={decline}
+            >
+              Decline
             </Button>
             {status && <p className="mt-4 text-acid">{status}</p>}
-          </>
+          </div>
         )}
-        {error && <p className="mt-4 text-signal">{error}</p>}
+        {error && <p className="text-signal">{error}</p>}
       </aside>
     </div>
   );

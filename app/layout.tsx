@@ -17,7 +17,7 @@ const mono = IBM_Plex_Mono({
 export const metadata: Metadata = {
   title: "Verimask",
   description:
-    "Zero-knowledge student credentials. Prove age and GPA thresholds without revealing the numbers.",
+    "Prove the source is real. Never prove who they are. Selective disclosure for tips, gates, and hiring.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { logVerification } from "@/lib/chain";
+import { verificationReceipt } from "@/lib/receipt";
 import { loadSession, saveSession } from "@/lib/store";
 import type { Presentation } from "@/lib/types";
 import { verifyPresentation } from "@/lib/verify-presentation";
@@ -34,9 +36,10 @@ export async function POST(
     session.result = {
       ephemeralDid: "",
       disclosed: {},
-      predicates: { ageGte: false, gpaGte: false },
+      hiddenKeys: [],
+      labels: {},
       verifiedAt: Date.now(),
-      reason: body.reason ?? "predicates_unsatisfied",
+      reason: body.reason ?? "holder_declined",
     };
     await saveSession(session);
     return NextResponse.json(session);
@@ -47,15 +50,35 @@ export async function POST(
     return NextResponse.json({ error: "session_mismatch" }, { status: 400 });
   }
 
-  const checked = await verifyPresentation(presentation, session.request);
+  const checked = verifyPresentation(presentation, session.request);
+  const passed = checked.ok;
+  const issuerDid = presentation.credential.issuerDid;
+  const claimTypes = session.request.disclose;
+  const receiptHash = verificationReceipt({
+    sessionId: id,
+    verifierDid: session.request.verifierDid,
+    issuerDid,
+    claimTypes,
+    passed,
+  });
+  const chain = await logVerification({
+    receiptHash,
+    verifierDid: session.request.verifierDid,
+    issuerDid,
+    claimTypes,
+    passed,
+  });
+
   if (!checked.ok) {
     session.status = "fail";
     session.result = {
       ephemeralDid: presentation.ephemeralDid,
       disclosed: {},
-      predicates: { ageGte: false, gpaGte: false },
+      hiddenKeys: presentation.credential.schema.map((c) => c.id),
+      labels: {},
       verifiedAt: Date.now(),
       reason: checked.reason,
+      chain,
     };
     await saveSession(session);
     return NextResponse.json(session);
@@ -65,8 +88,10 @@ export async function POST(
   session.result = {
     ephemeralDid: checked.ephemeralDid,
     disclosed: checked.disclosed,
-    predicates: { ageGte: true, gpaGte: true },
+    hiddenKeys: checked.hidden,
+    labels: checked.labels,
     verifiedAt: Date.now(),
+    chain,
   };
   await saveSession(session);
   return NextResponse.json(session);

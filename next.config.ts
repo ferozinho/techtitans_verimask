@@ -2,7 +2,14 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   agentRules: false,
-  serverExternalPackages: ["snarkjs", "ffjavascript", "circomlibjs"],
+  allowedDevOrigins: [
+    "*.trycloudflare.com",
+    "online-pictures-columbus-api.trycloudflare.com",
+    "192.168.1.111",
+    "localhost",
+    "127.0.0.1",
+  ],
+  serverExternalPackages: ["snarkjs", "ffjavascript", "circomlibjs", "viem"],
   turbopack: {
     resolveAlias: {
       fs: "./lib/empty.ts",
