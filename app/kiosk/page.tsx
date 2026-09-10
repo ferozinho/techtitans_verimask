@@ -13,7 +13,6 @@ export default function KioskPage() {
   const [packId, setPackId] = useState("source");
   const [session, setSession] = useState<VerifySession | null>(null);
   const [origin, setOrigin] = useState("");
-  const [durable, setDurable] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const mint = useCallback(async (nextPackId: string) => {
@@ -34,7 +33,6 @@ export default function KioskPage() {
       setError("could not open a session");
       return;
     }
-    setDurable(Boolean(data.durable));
     setSession(data.session);
   }, []);
 
@@ -49,6 +47,7 @@ export default function KioskPage() {
       const res = await fetch(`/api/sessions/${session.id}`);
       if (!res.ok) return;
       const next = (await res.json()) as VerifySession;
+      if (!next?.id || !next.status) return;
       setSession(next);
     }, 900);
     return () => clearInterval(t);
@@ -109,12 +108,6 @@ export default function KioskPage() {
               wallet. Same laptop: open the link under the QR. Switch packs to
               mint a new QR.
             </p>
-            {!durable && (
-              <p className="mt-4 text-sm text-signal">
-                No Redis — fine on one machine. Add Upstash on Vercel for phone +
-                laptop.
-              </p>
-            )}
             <Button type="button" tone="ghost" className="mt-8" onClick={() => mint(packId)}>
               New QR
             </Button>

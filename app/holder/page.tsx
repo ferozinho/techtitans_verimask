@@ -42,10 +42,12 @@ function HolderInner() {
     fetch(`/api/sessions/${sessionId}`)
       .then((r) => r.json())
       .then((s) => {
-        if (s.id) {
+        if (s?.id && Array.isArray(s.request?.disclose)) {
           setSession(s);
           setDisclose(s.request.disclose);
+          return;
         }
+        setError("kiosk session missing — scan a live QR");
       })
       .catch(() => setError("could not load kiosk session"));
   }, [sessionId]);
@@ -118,6 +120,14 @@ function HolderInner() {
         body: JSON.stringify(presentation),
       });
       const data = await res.json();
+      if (!res.ok || !data.status) {
+        setError(
+          typeof data.error === "string"
+            ? data.error
+            : "kiosk session missing — scan a live QR",
+        );
+        return;
+      }
       setStatus(
         data.status === "pass"
           ? "portal should flip green"
