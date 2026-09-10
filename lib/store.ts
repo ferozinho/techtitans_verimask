@@ -13,11 +13,19 @@ function memory(): Memory {
   return globalStore.__verimaskMem;
 }
 
+function redisUrl(): string | undefined {
+  return process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL;
+}
+
+function redisToken(): string | undefined {
+  return process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN;
+}
+
 function redis(): Redis | null {
-  if (!process.env.UPSTASH_REDIS_REST_URL || !process.env.UPSTASH_REDIS_REST_TOKEN) {
-    return null;
-  }
-  return Redis.fromEnv();
+  const url = redisUrl();
+  const token = redisToken();
+  if (!url || !token) return null;
+  return new Redis({ url, token });
 }
 
 function sweep(map: Memory) {
@@ -26,23 +34,25 @@ function sweep(map: Memory) {
 }
 
 async function put(key: string, value: unknown, ttlSeconds: number) {
-  const encoded = JSON.stringify(value);
   const r = redis();
   if (r) {
-    await r.set(key, encoded, { ex: ttlSeconds });
+    await r.set(key, value, { ex: ttlSeconds });
     return;
   }
   const map = memory();
   sweep(map);
-  map.set(key, { value: encoded, exp: Date.now() + ttlSeconds * 1000 });
+  map.set(key, {
+    value: JSON.stringify(value),
+    exp: Date.now() + ttlSeconds * 1000,
+  });
 }
 
 async function get<T>(key: string): Promise<T | null> {
   const r = redis();
   if (r) {
-    const raw = await r.get<string>(key);
-    if (!raw) return null;
-    return typeof raw === "string" ? (JSON.parse(raw) as T) : (raw as T);
+    const raw = await r.get<T>(key);
+    if (raw == null) return null;
+    return typeof raw === "string" ? (JSON.parse(raw) as T) : raw;
   }
   const map = memory();
   sweep(map);
@@ -61,9 +71,7 @@ async function del(key: string) {
 }
 
 export function usingRedis(): boolean {
-  return Boolean(
-    process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN,
-  );
+  return Boolean(redisUrl() && redisToken());
 }
 
 export async function saveSession(session: VerifySession) {
